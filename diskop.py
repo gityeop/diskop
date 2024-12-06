@@ -153,11 +153,6 @@ def get_items_with_size(parent_dir):
 
 def display_items(items, selected_idx=0, scroll_pos=0):
     """Display items with their sizes"""
-    if not items:
-        print("\n\033[1;31m⚠️  No items to display or permission denied.\033[0m")
-        return
-
-    ITEMS_PER_PAGE = 20
     
     # Clear screen and print header with style
     os.system('clear')
@@ -173,62 +168,66 @@ def display_items(items, selected_idx=0, scroll_pos=0):
     ]
     print(f"{headers[0]:<4} {headers[1]:<52} {headers[2]:>10} {headers[3]:>10}")
     print("\033[38;5;240m" + "─" * 82 + "\033[0m")
-    
-    # Calculate visible items range
-    start_idx = scroll_pos
-    end_idx = min(start_idx + ITEMS_PER_PAGE, len(items))
-    
-    for i in range(start_idx, end_idx):
-        name, path, size_bytes, item_type = items[i]
-        # Get updated size from cache if available
-        if path in size_cache:
-            size_bytes = size_cache[path]
-        size_gb = convert_bytes_to_gb(size_bytes)
-        
-        # Add icons and colors based on item type
-        if item_type == "DIR":
-            icon = "📁"
-            type_color = "\033[1;34m"  # Blue for directories
-            name = name + "/"
-        else:
-            # Choose icon based on file extension
-            ext = os.path.splitext(name)[1].lower()
-            if ext in ['.py', '.js', '.java', '.cpp']:
-                icon = "📜"  # Code files
-            elif ext in ['.txt', '.md', '.doc', '.pdf']:
-                icon = "📄"  # Document files
-            elif ext in ['.jpg', '.png', '.gif']:
-                icon = "🖼️ "  # Image files
-            elif ext in ['.mp3', '.wav']:
-                icon = "🎵"  # Music files
-            elif ext in ['.mp4', '.mov']:
-                icon = "🎬"  # Video files
-            else:
-                icon = "📄"  # Default file icon
-            type_color = "\033[0;37m"  # White for files
-        
-        if len(name) > 45:
-            name = name[:42] + "..."
+    if not items:
+        print("\n\033[1;31m❌ No items found.\033[0m")
+    else:
+        ITEMS_PER_PAGE = 20
             
-        # Highlight the selected item
-        if i == selected_idx:
-            prefix = "\033[1;32m▶\033[0m "  # Green arrow for selected item
-            name_display = f"\033[1;32m{icon} {name}\033[0m"
-            size_display = f"\033[1;32m{size_gb:>8.2f}GB\033[0m"
-            type_display = f"\033[1;32m{item_type}\033[0m"
-        else:
-            prefix = "  "
-            name_display = f"{type_color}{icon} {name}\033[0m"
-            size_display = f"{size_gb:>8.2f}GB"
-            type_display = f"{item_type}"
+        # Calculate visible items range
+        start_idx = scroll_pos
+        end_idx = min(start_idx + ITEMS_PER_PAGE, len(items))
         
-        print(f"{prefix}{i+1:<2} {name_display:<50} {size_display:>10} {type_display:>10}")
-    
-    print("\033[38;5;240m" + "─" * 82 + "\033[0m")
-    
-    # Footer with navigation info and stats
-    if len(items) > ITEMS_PER_PAGE:
-        print(f"\033[38;5;245m📌 Showing items {start_idx + 1} to {end_idx} of {len(items)}\033[0m")
+        for i in range(start_idx, end_idx):
+            name, path, size_bytes, item_type = items[i]
+            # Get updated size from cache if available
+            if path in size_cache:
+                size_bytes = size_cache[path]
+            size_gb = convert_bytes_to_gb(size_bytes)
+            
+            # Add icons and colors based on item type
+            if item_type == "DIR":
+                icon = "📁"
+                type_color = "\033[1;34m"  # Blue for directories
+                name = name + "/"
+            else:
+                # Choose icon based on file extension
+                ext = os.path.splitext(name)[1].lower()
+                if ext in ['.py', '.js', '.java', '.cpp']:
+                    icon = "📜"  # Code files
+                elif ext in ['.txt', '.md', '.doc', '.pdf']:
+                    icon = "📄"  # Document files
+                elif ext in ['.jpg', '.png', '.gif']:
+                    icon = "🖼️ "  # Image files
+                elif ext in ['.mp3', '.wav']:
+                    icon = "🎵"  # Music files
+                elif ext in ['.mp4', '.mov']:
+                    icon = "🎬"  # Video files
+                else:
+                    icon = "📄"  # Default file icon
+                type_color = "\033[0;37m"  # White for files
+            
+            if len(name) > 45:
+                name = name[:42] + "..."
+                
+            # Highlight the selected item
+            if i == selected_idx:
+                prefix = "\033[1;32m▶\033[0m "  # Green arrow for selected item
+                name_display = f"\033[1;32m{icon} {name}\033[0m"
+                size_display = f"\033[1;32m{size_gb:>8.2f}GB\033[0m"
+                type_display = f"\033[1;32m{item_type}\033[0m"
+            else:
+                prefix = "  "
+                name_display = f"{type_color}{icon} {name}\033[0m"
+                size_display = f"{size_gb:>8.2f}GB"
+                type_display = f"{item_type}"
+            
+            print(f"{prefix}{i+1:<2} {name_display:<50} {size_display:>10} {type_display:>10}")
+        
+        print("\033[38;5;240m" + "─" * 82 + "\033[0m")
+        
+        # Footer with navigation info and stats
+        if len(items) > ITEMS_PER_PAGE:
+            print(f"\033[38;5;245m📌 Showing items {start_idx + 1} to {end_idx} of {len(items)}\033[0m")
     
     # Help text
     print("\n\033[38;5;245m🔍 Navigation: [↑↓] Move  [Enter] Select  [/] Search  [d] Delete  [q] Quit\033[0m")
