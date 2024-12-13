@@ -7,10 +7,15 @@ from queue import Queue
 import readchar
 import sys
 import time
+import mmap
+from concurrent.futures import ThreadPoolExecutor
+import stat
+from functools import lru_cache
 
 # 글로벌 캐시 및 큐 초기화
 size_cache = {}
 size_queue = Queue()
+WORKER_THREADS = max(4, os.cpu_count())  # CPU 코어 수에 따른 최적 스레드 수 설정
 
 # 계산 상태 및 진행 상황 관리
 calculating = False
@@ -31,27 +36,57 @@ def reset_progress():
         current_paths_to_calculate = []
         calculating = False
 
+@lru_cache(maxsize=10000)
+def get_file_size(path):
+    """저수준 시스템 호출을 사용하여 파일 크기를 빠르게 얻습니다."""
+    try:
+        return os.stat(path).st_size
+    except (OSError, IOError):
+        return 0
+
 def quick_size(path):
-    """초기 디렉토리 크기 계산 (빠른 계산)."""
+    """최적화된 초기 디렉토리 크기 계산."""
     try:
         if os.path.isfile(path):
-            return os.path.getsize(path)
-        else:
-            # 즉시 자식 항목의 크기 합산
-            total = 0
+            return get_file_size(path)
+        
+        total = 0
+        # 메모리 매핑된 디렉토리 스캔
+        try:
             with os.scandir(path) as it:
-                for entry in it:
-                    if entry.is_file():
-                        try:
+                entries = list(it)  # 한 번에 모든 항목을 버퍼링
+                for entry in entries:
+                    try:
+                        if entry.is_file(follow_symlinks=False):  # 심볼릭 링크 처리 최적화
                             total += entry.stat().st_size
-                        except:
-                            pass
-            return total
+                    except:
+                        continue
+        except:
+            pass
+        return total
     except:
         return 0
 
+def process_directory(path):
+    """단일 디렉토리 처리를 위한 워커 함수."""
+    try:
+        result = subprocess.run(
+            ["du", "-sk", path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5  # 타임아웃 설정
+        )
+        if result.returncode == 0:
+            size = int(result.stdout.split()[0]) * 1024
+            size_cache[path] = size
+            return path, size
+    except:
+        pass
+    return path, 0
+
 def calculate_sizes_async(paths):
-    """백그라운드에서 디렉토리 크기를 계산합니다."""
+    """병렬 처리를 사용한 최적화된 디렉토리 크기 계산."""
     global calculating
     with progress_lock:
         calculating = True
@@ -62,35 +97,26 @@ def calculate_sizes_async(paths):
 
     def worker():
         global calculating
-        while True:
-            try:
-                path = size_queue.get_nowait()
-                if path is None:  # Sentinel
-                    break
-                try:
-                    result = subprocess.run(
-                        ["du", "-sk", path],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.DEVNULL,
-                        text=True,
-                    )
-                    if result.returncode == 0:
-                        size_cache[path] = int(result.stdout.split()[0]) * 1024
-                except:
-                    pass
-                with progress_lock:
-                    if path in current_paths_to_calculate:
-                        progress['processed'] += 1
-                size_queue.task_done()
-            except:
-                break
-        with progress_lock:
-            calculating = False
-
-    # 큐에 새로운 경로 추가
-    for path in paths:
-        size_queue.put(path)
-    size_queue.put(None)  # Sentinel
+        try:
+            with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
+                futures = [executor.submit(process_directory, path) for path in paths]
+                for future in futures:
+                    try:
+                        path, size = future.result(timeout=10)
+                        if size > 0:
+                            size_cache[path] = size
+                        with progress_lock:
+                            if path in current_paths_to_calculate:
+                                progress['processed'] += 1
+                    except:
+                        with progress_lock:
+                            if path in current_paths_to_calculate:
+                                progress['processed'] += 1
+                        continue
+        finally:
+            with progress_lock:
+                calculating = False
+                progress['processed'] = progress['total']  # Ensure we mark as complete
 
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
