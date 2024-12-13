@@ -11,6 +11,7 @@ import mmap
 from concurrent.futures import ThreadPoolExecutor
 import stat
 from functools import lru_cache
+import platform
 
 # 글로벌 캐시 및 큐 초기화
 size_cache = {}
@@ -272,7 +273,7 @@ def display_items(items, selected_idx=0, scroll_pos=0):
         # 계산 중임을 사용자에게 알림
         print("\n\033[38;5;245m⏳ Calculating sizes, please wait...\033[0m\n")
     else:
-        print("\n\033[38;5;245m🔍 Navigation: [↑↓] Move  [Enter] Select  [/] Search  [d] Delete  [q] Quit\033[0m")
+        print("\n\033[38;5;245m🔍 Navigation: [↑↓] Move  [Enter] Select  [o] Open  [/] Search  [d] Delete  [q] Quit\033[0m")
 
 def display_search_results(items, results, selected_idx=0, scroll_pos=0):
     """검색 결과를 표시합니다."""
@@ -355,7 +356,7 @@ def display_search_results(items, results, selected_idx=0, scroll_pos=0):
         # 계산 중임을 사용자에게 알림
         print("\n\033[38;5;245m⏳ Calculating sizes, please wait...\033[0m\n")
     else:
-        print("\n\033[38;5;245m🔍 Navigation: [↑↓] Move  [Enter] Select  [Esc] Back  [q] Quit\033[0m")
+        print("\n\033[38;5;245m🔍 Navigation: [↑↓] Move  [Enter] Select  [o] Open  [Esc] Back  [q] Quit\033[0m")
 
 def delete_item(path):
     """파일 또는 디렉토리를 삭제합니다."""
@@ -387,6 +388,20 @@ def search_items(items, search_term):
                 results.append(i)
     return results
 
+def open_path(path):
+    """파일이나 디렉토리를 시스템 기본 앱으로 엽니다."""
+    try:
+        if platform.system() == 'Darwin':  # macOS
+            subprocess.run(['open', path])
+        elif platform.system() == 'Windows':  # Windows
+            os.startfile(path)
+        elif platform.system() == 'Linux':  # Linux
+            subprocess.run(['xdg-open', path])
+        return True
+    except Exception as e:
+        print(f"\nError opening {path}: {e}")
+        return False
+
 def main():
     current_path = os.path.expanduser("~")
     history = []
@@ -417,16 +432,14 @@ def main():
             search_results = search_items(items, last_search_term)
             display_search_results(items, search_results, selected_idx, scroll_pos)
             print(f"\n\033[1;35m🔍 Search Term '{last_search_term}' Results\033[0m", end='')
-            print("\n\033[38;5;245m(d: Delete, Enter: Open Folder, /: Modify Search)\033[0m", end='', flush=True)
+            print("\n\033[38;5;245m(d: Delete, o: Open, Enter: Open Folder, /: Modify Search)\033[0m", end='', flush=True)
         else:
             display_items(items, selected_idx, scroll_pos)
 
-        # 사용자 입력을 받기 전에 계산 상태 확인
         with progress_lock:
             is_calculating = calculating
 
         if is_calculating:
-            # 계산 중일 때는 사용자 입력을 무시하고 "Please wait..." 메시지를 표시
             time.sleep(0.5)
             continue
 
@@ -437,7 +450,6 @@ def main():
 
         if search_mode:
             if key == '\\':
-                # 검색 결과 모드로 전환
                 if search_results:
                     exit_search_mode(keep_results=True)
                 else:
@@ -450,158 +462,100 @@ def main():
                     scroll_pos = 0
                 else:
                     exit_search_mode()
+            elif key == 'o':  # 파일/디렉토리 열기
+                if search_results:
+                    orig_idx = search_results[selected_idx]
+                    item_path = os.path.join(current_path, items[orig_idx][0])
+                    open_path(item_path)
             elif key in (readchar.key.ENTER, '\r', '\n'):
                 if search_results:
                     orig_idx = search_results[selected_idx]
                     if items[orig_idx][3] == "DIR":
-                        # 디렉토리로 이동
-                        history.append(current_path)
-                        current_path = items[orig_idx][1]
+                        history.append((current_path, selected_idx, scroll_pos))
+                        current_path = os.path.join(current_path, items[orig_idx][0])
                         selected_idx = 0
                         scroll_pos = 0
-                        # 현재 디렉토리의 캐시 무효화
-                        if current_path in size_cache:
-                            del size_cache[current_path]
-                        # 프로그레스 초기화 및 새 계산 시작
-                        reset_progress()
-                        showing_search_results = True
-                        exit_search_mode(keep_results=True)
-            elif key in (readchar.key.UP, readchar.key.DOWN):
-                if not search_results:
-                    exit_search_mode()
-                elif key == readchar.key.UP and selected_idx > 0:
-                    selected_idx -= 1
-                    if selected_idx < scroll_pos:
-                        scroll_pos = selected_idx
-                elif key == readchar.key.DOWN and selected_idx < len(search_results) - 1:
-                    selected_idx += 1
-                    if selected_idx >= scroll_pos + 20:
-                        scroll_pos = selected_idx - 19
-            else:
-                try:
-                    search_term += key
-                    search_results = search_items(items, search_term)
-                    selected_idx = 0
-                    scroll_pos = 0
-                except UnicodeError:
-                    pass
-            continue
-
-        if key == '/':
-            # 검색 모드 진입
-            search_mode = True
-            if showing_search_results:
-                search_term = last_search_term
-                search_results = search_items(items, search_term)
-            else:
-                search_term = ""
-                search_results = []
-            selected_idx = 0
-            scroll_pos = 0
-            showing_search_results = False
-            continue
-
-        if key == readchar.key.UP:
-            if showing_search_results:
+                        exit_search_mode()
+        else:
+            if key in ('k', readchar.key.UP, '\x1b[A'):
                 if selected_idx > 0:
                     selected_idx -= 1
                     if selected_idx < scroll_pos:
                         scroll_pos = selected_idx
-            else:
-                if selected_idx > 0:
-                    selected_idx -= 1
-                    if selected_idx < scroll_pos:
-                        scroll_pos = selected_idx
-        elif key == readchar.key.DOWN:
-            if showing_search_results:
-                if selected_idx < len(search_results) - 1:
-                    selected_idx += 1
-                    if selected_idx >= scroll_pos + 20:
-                        scroll_pos = selected_idx - 19
-            else:
-                if selected_idx < len(items) - 1:
-                    selected_idx += 1
-                    if selected_idx >= scroll_pos + 20:
-                        scroll_pos = selected_idx - 19
-        elif key in (readchar.key.ENTER, '\r', '\n'):
-            if showing_search_results:
-                if search_results and selected_idx < len(search_results):
+            elif key in ('j', readchar.key.DOWN, '\x1b[B'):
+                if showing_search_results:
+                    if selected_idx < len(search_results) - 1:
+                        selected_idx += 1
+                        if selected_idx >= scroll_pos + 20:
+                            scroll_pos = selected_idx - 19
+                else:
+                    if selected_idx < len(items) - 1:
+                        selected_idx += 1
+                        if selected_idx >= scroll_pos + 20:
+                            scroll_pos = selected_idx - 19
+            elif key == 'o':  # 파일/디렉토리 열기
+                if showing_search_results:
+                    orig_idx = search_results[selected_idx]
+                    item_path = os.path.join(current_path, items[orig_idx][0])
+                else:
+                    item_path = os.path.join(current_path, items[selected_idx][0])
+                open_path(item_path)
+            elif key in (readchar.key.ENTER, '\r', '\n'):
+                if showing_search_results:
                     orig_idx = search_results[selected_idx]
                     if items[orig_idx][3] == "DIR":
-                        # 선택한 디렉토리로 이동
-                        history.append(current_path)
-                        current_path = items[orig_idx][1]
+                        history.append((current_path, selected_idx, scroll_pos))
+                        current_path = os.path.join(current_path, items[orig_idx][0])
                         selected_idx = 0
                         scroll_pos = 0
-                        # 현재 디렉토리의 캐시 무효화
-                        if current_path in size_cache:
-                            del size_cache[current_path]
-                        # 프로그레스 초기화 및 새 계산 시작
-                        reset_progress()
-            else:
-                if items and selected_idx < len(items) and items[selected_idx][3] == "DIR":
-                    # 선택한 디렉토리로 이동
-                    history.append(current_path)
-                    current_path = items[selected_idx][1]
-                    selected_idx = 0
-                    scroll_pos = 0
-                    # 현재 디렉토리의 캐시 무효화
+                        showing_search_results = False
+                else:
+                    if items[selected_idx][3] == "DIR":
+                        history.append((current_path, selected_idx, scroll_pos))
+                        current_path = os.path.join(current_path, items[selected_idx][0])
+                        selected_idx = 0
+                        scroll_pos = 0
+            elif key == 'b':
+                if history:
+                    previous_path, previous_selected_idx, previous_scroll_pos = history.pop()
+                    current_path = previous_path
+                    selected_idx = previous_selected_idx
+                    scroll_pos = previous_scroll_pos
                     if current_path in size_cache:
                         del size_cache[current_path]
-                    # 프로그레스 초기화 및 새 계산 시작
                     reset_progress()
-            continue
-        elif key == 'b':
-            # 이전 디렉토리로 돌아가기
-            if history:
-                previous_path = history.pop()
-                current_path = previous_path
-                selected_idx = 0
-                scroll_pos = 0
-                # 이전 디렉토리의 캐시 무효화
-                if current_path in size_cache:
-                    del size_cache[current_path]
-                # 프로그레스 초기화 및 새 계산 시작
-                reset_progress()
-        elif key == 'd':
-            # 선택한 항목 삭제
-            if showing_search_results:
-                if search_results and selected_idx < len(search_results):
-                    orig_idx = search_results[selected_idx]
-                    item = items[orig_idx]
-                    print(f"\nReally delete '{item[0]}'? (y/n): ", end='', flush=True)
-                    confirm = readchar.readkey().lower()
-                    if confirm == 'y':
-                        if delete_item(item[1]):
-                            print(f"\nDeleted: {item[0]}")
-                            # 현재 디렉토리의 캐시 무효화
-                            if current_path in size_cache:
-                                del size_cache[current_path]
-                            # 프로그레스 초기화 및 새 계산 시작
-                            reset_progress()
-                        else:
-                            print(f"\nFailed to delete: {item[0]}")
-                    # 자동으로 디렉토리 목록 새로고침
-                    continue
-            else:
-                if items and selected_idx < len(items):
-                    item = items[selected_idx]
-                    print(f"\nReally delete '{item[0]}'? (y/n): ", end='', flush=True)
-                    confirm = readchar.readkey().lower()
-                    if confirm == 'y':
-                        if delete_item(item[1]):
-                            print(f"\nDeleted: {item[0]}")
-                            # 현재 디렉토리의 캐시 무효화
-                            if current_path in size_cache:
-                                del size_cache[current_path]
-                            # 프로그레스 초기화 및 새 계산 시작
-                            reset_progress()
-                        else:
-                            print(f"\nFailed to delete: {item[0]}")
-                    # 자동으로 디렉토리 목록 새로고침
-                    continue
-        elif key == 'q':
-            break
+            elif key == 'd':
+                if showing_search_results:
+                    if search_results and selected_idx < len(search_results):
+                        orig_idx = search_results[selected_idx]
+                        item = items[orig_idx]
+                        print(f"\nReally delete '{item[0]}'? (y/n): ", end='', flush=True)
+                        confirm = readchar.readkey().lower()
+                        if confirm == 'y':
+                            if delete_item(item[1]):
+                                print(f"\nDeleted: {item[0]}")
+                                if current_path in size_cache:
+                                    del size_cache[current_path]
+                                reset_progress()
+                            else:
+                                print(f"\nFailed to delete: {item[0]}")
+                        continue
+                else:
+                    if items and selected_idx < len(items):
+                        item = items[selected_idx]
+                        print(f"\nReally delete '{item[0]}'? (y/n): ", end='', flush=True)
+                        confirm = readchar.readkey().lower()
+                        if confirm == 'y':
+                            if delete_item(item[1]):
+                                print(f"\nDeleted: {item[0]}")
+                                if current_path in size_cache:
+                                    del size_cache[current_path]
+                                reset_progress()
+                            else:
+                                print(f"\nFailed to delete: {item[0]}")
+                        continue
+            elif key == 'q':
+                break
 
 if __name__ == "__main__":
     try:
