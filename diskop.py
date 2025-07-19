@@ -141,9 +141,18 @@ def get_items_with_size(parent_dir):
 
     try:
         entries = []
+        # 홈 디렉토리일 경우 Library 폴더를 수동으로 추가
+        if parent_dir == os.path.expanduser("~"):
+            library_path = os.path.join(parent_dir, "Library")
+            if os.path.isdir(library_path):
+                size_in_bytes = get_directory_size_in_bytes(library_path)
+                entries.append(("Library", library_path, size_in_bytes, "DIR"))
+                if library_path not in size_cache:
+                    paths_to_calculate.append(library_path)
+
         for entry in os.scandir(parent_dir):
             # 특정 디렉토리나 심볼릭 링크는 건너뜁니다.
-            if entry.is_symlink():
+            if entry.is_symlink() or entry.name == "Library": # 이미 추가했으므로 중복 방지
                 continue
 
             item_type = "DIR" if entry.is_dir(follow_symlinks=False) else "FILE"

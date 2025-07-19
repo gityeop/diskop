@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="diskop",
-    version="1.0.4",
+    version="1.0.5",
     description="Terminal User Interface (TUI) disk management tool for macOS",
     author="Sangyeob Im",
     author_email="",
