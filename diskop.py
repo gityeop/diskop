@@ -143,8 +143,6 @@ def get_items_with_size(parent_dir):
         entries = []
         for entry in os.scandir(parent_dir):
             # 특정 디렉토리나 심볼릭 링크는 건너뜁니다.
-            if entry.name in ['System']:
-                continue
             if entry.is_symlink():
                 continue
 
@@ -159,11 +157,7 @@ def get_items_with_size(parent_dir):
             entries.append((entry.name, dir_full_path, size_in_bytes, item_type))
 
         # 디렉토리와 파일을 크기별로 정렬
-        dirs = sorted([(n, p, s, t) for n, p, s, t in entries if t == "DIR"],
-                      key=lambda x: (-x[2], x[0].lower()))
-        files = sorted([(n, p, s, t) for n, p, s, t in entries if t == "FILE"],
-                       key=lambda x: (-x[2], x[0].lower()))
-        items = dirs + files
+        items = sorted(entries, key=lambda x: (-x[2], x[0].lower()))
 
         # 계산이 필요하고 현재 계산 중이 아니면 계산 시작
         with progress_lock:
